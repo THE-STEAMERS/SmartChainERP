@@ -1,132 +1,186 @@
+import { useState, useEffect } from "react";
+
+const BASE_URL = "http://127.0.0.1:8000/api";
+
 export interface StockItem {
-    productName: string;
-    stock: string;
-    available: number;
-    sold: number;
-    category: string;
-    demanded: number;
-    
-  }
-  
+  productName: string;
+  category: number;
+  available: number;
+  sold: number;
+  demanded: number;
+}
+
 export interface CategoryItem {
+  category_id: number;
   name: string;
-  value: number;
+  product_count: number;
   fill: string;
 }
 
-export function getRandomColor(): string {
-  const letters = '0123456789ABCDEF';
-  let color = '#';
-  for (let i = 0; i < 6; i++) {
-    color += letters[Math.floor(Math.random() * 16)];
-  }
-  return color;
-}
-/*
-export async function fetchStockData(): Promise<StockItem[]> {
-  const response = await fetch('/api/stock');
-  if (!response.ok) {
-    throw new Error('Failed to fetch stock data');
-  }
-  const data = await response.json();
-  return data.stockData;
-}
+const getAccessToken = () => localStorage.getItem("access_token");
+const getRefreshToken = () => localStorage.getItem("refresh_token");
 
-export async function fetchCategoryData(): Promise<CategoryItem[]> {
-  const response = await fetch('/api/stock');
-  if (!response.ok) {
-    throw new Error('Failed to fetch category data');
-  }
-  const data = await response.json();
-  return data.categoryData.map((item: CategoryItem) => ({
-    ...item,
-    fill: getRandomColor(),
-  }));
-}
-  */
-  export const stockData: StockItem[] = [
-    { 
-      productName: "iPhone 13",
-      stock: "Electronics", 
-      available: 150, 
-      sold: 50, 
-      category: "tech", 
-      demanded: 200, 
-      
-    },
-    { 
-      productName: "Plastic Containers",
-      stock: "Plastics", 
-      available: 300, 
-      sold: 120, 
-      category: "materials", 
-      demanded: 350, 
-   
-    },
-    { 
-      productName: "Coffee Maker",
-      stock: "Household", 
-      available: 200, 
-      sold: 75, 
-      category: "home", 
-      demanded: 180, 
-      
-    },
-    { 
-      productName: "Car Battery",
-      stock: "Automotive", 
-      available: 100, 
-      sold: 25, 
-      category: "vehicles", 
-      demanded: 150, 
-     
-    },
-    { 
-      productName: "Power Tools",
-      stock: "Industrial", 
-      available: 250, 
-      sold: 90, 
-      category: "manufacturing", 
-      demanded: 280, 
-     
-    },
-    { 
-      productName: "Gaming Console",
-      stock: "Electronics", 
-      available: 75, 
-      sold: 45, 
-      category: "tech", 
-      demanded: 200, 
-      
-    },
-    { 
-      productName: "Smart Watch",
-      stock: "Electronics", 
-      available: 80, 
-      sold: 60, 
-      category: "tech", 
-      demanded: 150, 
-    
-    }
-  ];
-  
+const refreshAccessToken = async (): Promise<string | null> => {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
 
-  export function generateCategoryData(stockData: StockItem[]): CategoryItem[] {
-    const categoryMap: { [key: string]: number } = {};
-  
-    stockData.forEach((item) => {
-      if (categoryMap[item.category]) {
-        categoryMap[item.category] += item.available;
-      } else {
-        categoryMap[item.category] = item.available;
-      }
+  try {
+    const response = await fetch(`${BASE_URL}/token/refresh/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh: refreshToken }),
     });
-  
-    return Object.keys(categoryMap).map((category) => ({
-      name: category,
-      value: categoryMap[category],
-      fill: getRandomColor(),
-    }));
+
+    if (!response.ok) {
+      console.error("Failed to refresh token");
+      localStorage.removeItem("access_token");
+      localStorage.removeItem("refresh_token");
+      return null;
+    }
+
+    const data = await response.json();
+    if (data.access) {
+      localStorage.setItem("access_token", data.access);
+      return data.access;
+    }
+  } catch (error) {
+    console.error("Error refreshing token:", error);
   }
-  
-  export const categoryData = generateCategoryData(stockData);
+
+  return null;
+};
+
+const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+  let accessToken = getAccessToken();
+
+  let response = await fetch(url, {
+    ...options,
+    headers: {
+      ...options.headers,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (response.status === 401) {
+    console.warn("Access token expired, attempting to refresh...");
+    const newAccessToken = await refreshAccessToken();
+
+    if (newAccessToken) {
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          ...options.headers,
+          Authorization: `Bearer ${newAccessToken}`,
+        },
+      });
+    }
+  }
+
+  return response;
+};
+
+export const useStockData = () => {
+  const [stockData, setStockData] = useState<StockItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchStockData = async () => {
+      try {
+        const response = await fetchWithAuth(`${BASE_URL}/stock/`);
+        if (!response.ok) throw new Error("Failed to fetch stock data");
+
+        const data = await response.json();
+        console.log("Fetched stock data:", data);
+
+        const formattedData = Array.isArray(data)
+          ? data.map((item) => ({
+              productName: item.name || "Unknown",
+              category: item.category || 0,
+              available: item.available_quantity || 0,
+              sold: item.total_shipped || 0,
+              demanded: item.total_required_quantity || 0,
+            }))
+          : [];
+
+        setStockData((prevStockData) =>
+          JSON.stringify(prevStockData) === JSON.stringify(formattedData)
+            ? prevStockData
+            : formattedData
+        );
+
+        setError(null);
+      } catch (error) {
+        console.error("Error fetching stock data:", error);
+        setError("Failed to load stock data");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStockData(); // Initial fetch
+    const interval = setInterval(fetchStockData, 5000); // Polling every 5 sec
+
+    return () => clearInterval(interval); // Cleanup on unmount
+  }, []);
+
+  return { stockData, loading, error };
+};
+
+export const useCategoryData = () => {
+  const [categoryData, setCategoryData] = useState<CategoryItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchCategoryData = async () => {
+      try {
+        const response = await fetchWithAuth(`${BASE_URL}/category-stock/`);
+        if (!response.ok) throw new Error("Failed to fetch category data");
+
+        const result = await response.json();
+        console.log("Fetched category data:", result);
+
+        const data = result.data || [];
+
+        const formattedData: CategoryItem[] = data.map(
+          (
+            category: {
+              category_id: number;
+              name: string;
+              product_count: number;
+            },
+            index: number
+          ) => ({
+            category_id: category.category_id,
+            name: category.name,
+            product_count: category.product_count,
+            fill: ["#0088FE", "#00C49F", "#FFBB28", "#FF8042", "#A28AFF"][
+              index % 5
+            ],
+          })
+        );
+
+        setCategoryData((prevCategoryData) =>
+          JSON.stringify(prevCategoryData) === JSON.stringify(formattedData)
+            ? prevCategoryData
+            : formattedData
+        );
+
+        setError(null);
+      } catch (error) {
+        console.error("Error fetching category data:", error);
+        setError("Failed to load category data");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCategoryData(); // Initial fetch
+    const interval = setInterval(fetchCategoryData, 5000); // Polling every 5 sec
+
+    return () => clearInterval(interval); // Cleanup on unmount
+  }, []);
+
+  return { categoryData, loading, error };
+};
