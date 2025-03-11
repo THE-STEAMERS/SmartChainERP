@@ -42,7 +42,7 @@ const StockCharts: React.FC<StockChartsProps> = ({ stockData }) => {
               cy="50%"
               innerRadius={60}
               outerRadius={80}
-              label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+              label={({ name, percent = 0 }) => `${name} ${(percent * 100).toFixed(0)}%`}
             >
               {categoryData.map((entry, index) => (
                 <Cell key={entry.name} fill={entry.fill} /> // ✅ Keep a meaningful key

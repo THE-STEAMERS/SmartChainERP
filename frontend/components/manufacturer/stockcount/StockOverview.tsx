@@ -6,7 +6,19 @@ import { StockItem } from './data';
 
 interface StockOverviewProps {
   activeView: string;
-  stockData: StockItem[];
+  stockData: {
+    stockData: StockItem[];
+    loading: boolean;
+    error: string | null;
+  };
+}
+
+interface SidePanelProps {
+  stockData: {
+    stockData: StockItem[];
+    loading: boolean;
+    error: string | null;
+  };
 }
 
 const StockOverview: React.FC<StockOverviewProps> = ({ activeView, stockData }) => {
@@ -17,10 +29,14 @@ const StockOverview: React.FC<StockOverviewProps> = ({ activeView, stockData }) 
         <CardDescription className="text-blue-300">Comprehensive stock details</CardDescription>
       </CardHeader>
       <CardContent className="text-blue-200">
-        {activeView === 'table' ? (
-          <StockTable stockData={stockData} />
+        {stockData.loading ? (
+          <p>Loading stock data...</p>
+        ) : stockData.error ? (
+          <p className="text-red-400">{stockData.error}</p>
+        ) : activeView === 'table' ? (
+          <StockTable stockData={stockData.stockData} />
         ) : (
-          <StockCharts stockData={stockData} />
+          <StockCharts stockData={stockData.stockData} />
         )}
       </CardContent>
     </Card>

@@ -278,7 +278,7 @@ const Dashboard: React.FC = () => {
                       config={chartConfig}
                       className="w-full h-full"
                     >
-                      <BarChart accessibilityLayer data={chartData}>
+                      <BarChart data={chartData}>
                         <CartesianGrid vertical={false} />
                         <XAxis
                           dataKey="month"

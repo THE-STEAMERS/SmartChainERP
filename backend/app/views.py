@@ -1,5 +1,6 @@
 import json
 from django.db import transaction
+from django.shortcuts import render
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -162,6 +163,10 @@ def get_stock_data(request):
     serializer = ProductSerializer(products, many=True)
     return Response(serializer.data)
 
+# ✅ MQTT Client View
+def mqtt_client_view(request):
+    return render(request, 'mqtt_client.html')
+
 # ✅ Get Category Stock Data (Accessible by Anyone)
 @api_view(["GET"])
 def category_stock_data(request):
@@ -185,14 +190,19 @@ def category_stock_data(request):
     except Exception as e:
         return Response({"error": str(e)}, status=500)
 
-@api_view(['POST'])
-@permission_classes([IsAdminUser])  # Restrict access to admin only
-def store_qr_code(request):
-    """API to process and store QR code data into the Product model (Admin Only)"""
-    try:
-        if not request.user.is_staff:  # Double-check admin access
-            return Response({"error": "Permission denied. Admins only."}, status=403)
+import logging
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from .models import Category, Product
 
+logger = logging.getLogger(__name__)
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def store_qr_code(request):
+    """API to process and store QR code data into the Product model"""
+    try:
         qr_data = request.data.get("qr_text", "")  # Get the QR code text
 
         # Example QR Code Data Format: "name=Camera|category=Electronics|quantity=10"
@@ -208,24 +218,19 @@ def store_qr_code(request):
         # Fetch or create the category
         category, _ = Category.objects.get_or_create(name=category_name)
 
-        # Fetch existing product or create a new one
+        # Fetch or create the product
         product, created = Product.objects.get_or_create(
-            name=product_name, category=category,
-            defaults={"available_quantity": 0}  # Ensure no NULL values
+            name=product_name,
+            category=category,
+            defaults={'available_quantity': 0}  # Ensure available_quantity is initialized
         )
 
-        if created:
-            product.available_quantity = quantity  # Set quantity for new product
-        else:
-            # Update quantity safely using F() expression
-            Product.objects.filter(product_id=product.product_id).update(
-                available_quantity=F('available_quantity') + quantity
-            )
-            product.refresh_from_db()  # Fetch updated values from DB
+        # Update the product quantity
+        product.available_quantity += quantity
+        product.save()
 
-        product.save()  # Save to trigger signals
-
-        return Response({"message": "Product updated successfully"}, status=201)
+        return Response({"success": "QR Code data stored successfully"}, status=200)
 
     except Exception as e:
-        return Response({"error": str(e)}, status=400)
+        logger.error(f"Error processing QR code data: {str(e)}")
+        return Response({"error": str(e)}, status=500)
