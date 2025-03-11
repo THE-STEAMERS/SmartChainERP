@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState } from 'react';
-import { stockData } from './data';
+import { useStockData } from './data';
 import SidePanel from './SidePanel';
 import NavigationBar from './NavigationBar';
 import StockOverview from './StockOverview';
 
 export default function StockCountPage() {
   const [activeView, setActiveView] = useState<string>('table');
+  const stockData = useStockData();
 
   return (
     <div className="relative p-6 bg-black text-blue-300 min-h-screen">
@@ -23,7 +24,7 @@ export default function StockCountPage() {
         
         {/* Side Panel - 1/3 width on large screens */}
         <div className="space-y-6">
-          <SidePanel stockData={stockData} />
+          <SidePanel stockData={stockData.stockData} />
         </div>
       </div>
     </div>

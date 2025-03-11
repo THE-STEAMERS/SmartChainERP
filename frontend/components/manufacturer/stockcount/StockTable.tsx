@@ -1,9 +1,13 @@
 import React from "react";
 import { ArrowUpRight } from "lucide-react";
-import { useStockData } from "./data";
+import { useStockData, StockItem } from "./data";
 
-const StockTable: React.FC = () => {
-  const { stockData, loading, error } = useStockData();
+interface StockTableProps {
+  stockData: StockItem[];
+}
+
+const StockTable: React.FC<StockTableProps> = ({ stockData }) => {
+  const { loading, error } = useStockData();
 
   return (
     <div className="overflow-x-auto">
@@ -13,7 +17,7 @@ const StockTable: React.FC = () => {
         <p>Loading stock data...</p>
       ) : error ? (
         <p className="text-red-400">{error}</p>
-      ) : stockData.length > 0 ? (
+      ) : stockData && stockData.length > 0 ? (
         <div className="w-full overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
