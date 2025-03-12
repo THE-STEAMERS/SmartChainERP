@@ -68,7 +68,6 @@ python manage.py createsuperuser
 Run the migrations for your app:
 
 ```sh
-python manage.py makemigrations sonyapp
 python manage.py migrate
 ```
 ### 9. Start the Django Server
