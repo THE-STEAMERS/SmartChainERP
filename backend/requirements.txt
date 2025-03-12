@@ -32,3 +32,7 @@ sqlparse==0.5.3
 typing_extensions==4.12.2
 tzdata==2025.1
 urllib3==2.3.0
+gunicorn
+dj-database-url
+python-dotenv==1.0.1
+whitenoise
