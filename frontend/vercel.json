@@ -1,0 +1,16 @@
+{
+    "version": 2,
+    "builds": [
+        {
+            "src": "Sony_main/wsgi.py",
+            "use": "@vercel/python"
+        }
+    ],
+    "routes": [
+        {
+            "src": "/(.*)",
+            "dest": "Sony_main.wsgi:application"
+        }
+    ],
+    "outputDirectory": "staticfiles"
+}

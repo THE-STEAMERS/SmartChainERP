@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 
-const BASE_URL = "http://127.0.0.1:8000/api";
+const BASE_URL = "https://smartchainerp2.onrender.com/api";
 
 export interface StockItem {
   productName: string;

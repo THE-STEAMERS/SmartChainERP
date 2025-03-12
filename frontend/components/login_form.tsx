@@ -21,6 +21,7 @@ export function LoginForm({
 }: React.ComponentPropsWithoutRef<"div">) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState<string | null>(null);
   const [error, setError] = useState("");
   const router = useRouter();
 
@@ -29,7 +30,7 @@ export function LoginForm({
     setError("");
 
     try {
-      const response = await fetch("http://127.0.0.1:8000/api/token/", {
+      const response = await fetch("https://smartchainerp2.onrender.com/api/token/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -52,7 +53,14 @@ export function LoginForm({
         console.log("✅ Login Successful!");
         localStorage.setItem("access_token", data.access);
         localStorage.setItem("refresh_token", data.refresh);
-        router.replace("/manufacturer");
+        localStorage.setItem("userRole", role || ""); // Store the selected role
+
+        // Redirect based on the selected role
+        if (role === "customer") {
+          router.replace("/customerpage/dashboard");
+        } else {
+          router.replace(`/${role}/dashboard`);
+        }
       } else {
         console.error("❌ Unexpected response format:", data);
         setError("Unexpected error. Please try again.");
@@ -69,7 +77,6 @@ export function LoginForm({
         <CardHeader className="pb-2">
           <CardTitle className="text-2xl font-bold">Login</CardTitle>
           <CardDescription className="text-gray-400 border-b border-gray-600 pb-2">
-
             Enter your username below to login to your account
           </CardDescription>
         </CardHeader>
@@ -107,10 +114,25 @@ export function LoginForm({
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="role">Select your role</Label>
+                <select
+                  id="role"
+                  className="bg-gray-900 text-white border border-gray-700"
+                  value={role || ''}
+                  onChange={(e) => setRole(e.target.value)}
+                  required
+                >
+                  <option value="" disabled>Select your role</option>
+                  <option value="manufacturer">Manufacturer</option>
+                  <option value="customer">Customer</option>
+                </select>
+              </div>
               {error && <p className="text-red-500 text-sm">{error}</p>}
               <Button
                 type="submit"
                 className="w-full bg-blue-600 hover:bg-blue-700"
+                disabled={!role} // Disable the button if no role is selected
               >
                 Login
               </Button>
