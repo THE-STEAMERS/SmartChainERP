@@ -364,3 +364,15 @@ def get_employee_orders(request):
 
 def redirect_view(request):
     return redirect('/admin/')
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated,IsEmployeeUser])
+def get_employee_id(request):
+    user = request.user  
+
+    try:
+        employee = Employee.objects.get(user=user)  # Get employee linked to logged-in user
+        return Response({"employee_id": employee.employee_id})  # ✅ Use employee_id instead of id
+    except Employee.DoesNotExist:
+        return Response({"error": "Employee not found"}, status=404)
