@@ -1,6 +1,6 @@
 "use client";
 import React from 'react';
-import { Navbar } from '@/components/customerpage/Navbar';
+import { Navbar } from '@/components/retailer/Navbar';
 
 export default function RootLayout({
   children,
@@ -9,7 +9,7 @@ export default function RootLayout({
 }) {
   return (
     <div>
-      <Navbar />
+      <Navbar/>
       <main>{children}</main>
     </div>
   );

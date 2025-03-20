@@ -1,14 +1,14 @@
 "use client";
 import React, { useState } from 'react';
 import { ShoppingCart, User } from 'lucide-react';
-import { MOCK_PRODUCTS } from '../../../components/customerpage/data/mockData';
+import { PRODUCTS } from '../../../components/retailer/data/mockData';
 
 const ProductsTab = () => {
 
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('All');
 
-  const filteredProducts = MOCK_PRODUCTS.filter(product => {
+  const filteredProducts = PRODUCTS.filter(product => {
     const matchesSearch = search === '' || 
       (product.name && product.name.toLowerCase().includes(search.toLowerCase()));
     const matchesCategory = category === 'All' || 

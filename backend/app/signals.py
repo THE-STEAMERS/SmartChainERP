@@ -56,33 +56,38 @@ def store_old_order_status(sender, instance, **kwargs):
 
 @receiver(post_save, sender=Order)
 def update_product_required_quantity_on_save(sender, instance, created, **kwargs):
-    """Updates total_required_quantity in Product when an Order is created or updated."""
-    product = instance.product
+    """Updates total_required_quantity and product status when an Order is created or updated."""
+
+    product_qs = Product.objects.filter(product_id=instance.product.product_id)
 
     if created:
+        # Order is created, update total_required_quantity and refresh product
         if instance.status in ['pending', 'allocated']:
-            Product.objects.filter(product_id=product.product_id).update(
-                total_required_quantity=F('total_required_quantity') + instance.required_qty
-            )
+            product_qs.update(total_required_quantity=F('total_required_quantity') + instance.required_qty)
+        
+        # Refresh product instance only on creation
+        product = Product.objects.get(product_id=instance.product.product_id)
     else:
+        # Order is updated, work with existing product data
+        product = instance.product
         old_status = instance._old_status
         old_required_qty = instance._old_required_qty
 
         if old_status in ['pending', 'allocated'] and instance.status in ['delivered', 'cancelled']:
-            Product.objects.filter(product_id=product.product_id).update(
-                total_required_quantity=F('total_required_quantity') - old_required_qty
-            )
+            product_qs.update(total_required_quantity=F('total_required_quantity') - old_required_qty)
 
         elif old_status in ['delivered', 'cancelled'] and instance.status in ['pending', 'allocated']:
-            Product.objects.filter(product_id=product.product_id).update(
-                total_required_quantity=F('total_required_quantity') + instance.required_qty
-            )
+            product_qs.update(total_required_quantity=F('total_required_quantity') + instance.required_qty)
 
         elif old_status in ['pending', 'allocated'] and instance.status in ['pending', 'allocated']:
             quantity_difference = instance.required_qty - old_required_qty
-            Product.objects.filter(product_id=product.product_id).update(
-                total_required_quantity=F('total_required_quantity') + quantity_difference
-            )
+            product_qs.update(total_required_quantity=F('total_required_quantity') + quantity_difference)
+
+    # Update product status
+    product_qs.update(
+        status="on_demand" if product.total_required_quantity > product.available_quantity else "sufficient"
+    )
+
 
 
 # ===================== SHIPMENT SIGNALS =====================

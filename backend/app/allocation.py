@@ -43,10 +43,7 @@ def allocate_shipments(request):
                 if product.available_quantity < order.required_qty:
                     skipped_orders.append({"order_id": order.order_id, "reason": "Insufficient stock"})
 
-                    # Increase total required quantity
-                    Product.objects.filter(product_id=product.product_id).update(
-                        total_required_quantity=F('total_required_quantity') + order.required_qty
-                    )
+                    # ❌ Removed: No need to update total_required_quantity here (was causing double count)
 
                     # Refresh and update status
                     product.refresh_from_db()

@@ -1,7 +1,6 @@
 "use client";
 import React, { useState } from 'react';
-import DashboardTab from '@/app/customerpage/dashboard/page';
-import { Navbar } from '@/components/customerpage/Navbar';
+import DashboardTab from '@/app/retailer/dashboard/page';
 const App = () => {
 
 
