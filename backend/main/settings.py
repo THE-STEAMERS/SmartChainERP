@@ -83,9 +83,9 @@ WSGI_APPLICATION = 'main.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'sony',
-        'USER': 'sonyin',
-        'PASSWORD': 'steamers',
+        'NAME': 'smartchain_db',
+        'USER': 'smartchain',
+        'PASSWORD': 'venkat*2005',
         'HOST': 'localhost',  # If running PostgreSQL locally
         'PORT': '5432',       # Default PostgreSQL port
     }
