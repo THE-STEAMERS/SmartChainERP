@@ -21,6 +21,7 @@ export function LoginForm({
 }: React.ComponentPropsWithoutRef<"div">) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState("manufacturer");
   const [error, setError] = useState("");
   const router = useRouter();
 
@@ -52,7 +53,13 @@ export function LoginForm({
         console.log("✅ Login Successful!");
         localStorage.setItem("access_token", data.access);
         localStorage.setItem("refresh_token", data.refresh);
-        router.replace("/manufacturer");
+        if (role === "manufacturer") {
+          router.replace("/manufacturer");
+        } else if (role === "employee") {
+          router.replace("/employee");
+        } else if (role === "retailer") {
+          router.replace("/retailer");
+        }
       } else {
         console.error("❌ Unexpected response format:", data);
         setError("Unexpected error. Please try again.");
@@ -106,6 +113,19 @@ export function LoginForm({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="role">Select Role</Label>
+                <select
+                  id="role"
+                  className="bg-gray-900 text-white border border-gray-700"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                >
+                  <option value="manufacturer">Manufacturer</option>
+                  <option value="employee">Employee</option>
+                  <option value="retailer">Retailer</option>
+                </select>
               </div>
               {error && <p className="text-red-500 text-sm">{error}</p>}
               <Button

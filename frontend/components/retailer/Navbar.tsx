@@ -1,23 +1,23 @@
 import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
-import Anchor from "@/components/customerpage/anchor";
+import Anchor from "@/components/retailer/anchor";
 
 export const NAVLINKS = [
   {
     title: "Dashboard",
-    href: "/customerpage/dashboard",
+    href: "/retailer/dashboard",
   },
   {
     title: "Orders",
-    href: "/customerpage/Orders",
+    href: "/retailer/Orders",
   },
   {
     title: "Products",
-    href: "/customerpage/Products",
+    href: "/retailer/Products",
   },
   {
     title: "Profile",
-    href: "/customerpage/Profile",
+    href: "/retailer/Profile",
   },
 ];
 

@@ -1,6 +1,6 @@
 "use client";
 import React from 'react';
-import { MOCK_ORDERS } from '../../../components/customerpage/data/mockData';
+import { ORDERS } from '../../../components/retailer/data/mockData';
 
 
 const OrdersTab = () => {
@@ -21,7 +21,7 @@ const OrdersTab = () => {
         <main className="p-8 max-w-[1600px] mx-auto">
           <h2 className="text-xl font-bold mb-4">Recent Orders</h2>
           <div className="space-y-4">
-            {MOCK_ORDERS.map(order => (
+            {ORDERS.map(order => (
               <div key={order.id} className="bg-gray-900 p-4 rounded-lg">
                 <div className="flex justify-between items-center">
                   <div>

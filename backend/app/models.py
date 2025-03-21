@@ -1,6 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.db.models import Count
+from decimal import Decimal
+
 
 class Category(models.Model):
     category_id = models.AutoField(primary_key=True)
@@ -24,6 +26,7 @@ class Product(models.Model):
     available_quantity = models.PositiveIntegerField()
     total_shipped = models.PositiveIntegerField(default=0)
     total_required_quantity = models.PositiveIntegerField(default=0)
+    price = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
 
     STATUS_CHOICES = [
         ('on_demand', 'On Demand'),

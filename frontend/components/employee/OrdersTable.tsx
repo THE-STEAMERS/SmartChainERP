@@ -6,9 +6,10 @@ import { DeliveryOrder } from "./types";
 interface OrdersTableProps {
   orders: DeliveryOrder[];
   onCancelClick: (orderId: string) => void;
+  onUpdateStatus: (shipmentId: number) => void;
 }
 
-export const OrdersTable = ({ orders, onCancelClick }: OrdersTableProps) => {
+export const OrdersTable = ({ orders, onCancelClick, onUpdateStatus }: OrdersTableProps) => {
   const getStatusColor = (order: DeliveryOrder) => {
     if (order.isCancelled) return "text-yellow-500";
     if (order.isDelivered) return "text-green-500";
@@ -32,11 +33,11 @@ export const OrdersTable = ({ orders, onCancelClick }: OrdersTableProps) => {
             <thead>
               <tr className="border-b border-slate-700">
                 <th className="text-left p-4 font-medium text-slate-300">Status</th>
-                <th className="text-left p-4 font-medium text-slate-300">Order ID</th>
+                <th className="text-left p-4 font-medium text-slate-300">Shipment ID</th>
                 <th className="text-left p-4 font-medium text-slate-300">Order Name</th>
                 <th className="text-left p-4 font-medium text-slate-300">Phone Number</th>
                 <th className="text-left p-4 font-medium text-slate-300">Address</th>
-                <th className="text-left p-4 font-medium text-slate-300">Items</th>
+                <th className="text-left p-4 font-medium text-slate-300">Order ID</th>
                 <th className="text-left p-4 font-medium text-slate-300">Actions</th>
               </tr>
             </thead>
@@ -60,14 +61,24 @@ export const OrdersTable = ({ orders, onCancelClick }: OrdersTableProps) => {
                   </td>
                   <td className="p-4">
                     {!order.isCancelled && !order.isDelivered && (
-                      <Button 
-                        variant="destructive" 
-                        size="sm"
-                        className="bg-red-500 hover:bg-red-600 text-white"
-                        onClick={() => onCancelClick(order.orderId)}
-                      >
-                        Cancel Order
-                      </Button>
+                      <>
+                        <Button 
+                          variant="destructive" 
+                          size="sm"
+                          className="bg-red-500 hover:bg-red-600 text-white mr-2"
+                          onClick={() => onCancelClick(order.orderId)}
+                        >
+                          Cancel Order
+                        </Button>
+                        <Button 
+                          variant="destructive" 
+                          size="sm"
+                          className="bg-blue-500 hover:bg-blue-600 text-white"
+                          onClick={() => onUpdateStatus(parseInt(order.orderId.split("-")[1]))}
+                        >
+                          Mark as Delivered
+                        </Button>
+                      </>
                     )}
                     {order.isDelivered && (
                       <span className="text-sm text-green-500">

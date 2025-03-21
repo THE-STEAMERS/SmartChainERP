@@ -1,8 +1,9 @@
 import json
+import logging
 from django.db import transaction
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated,IsAdminUser
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework import status
@@ -14,13 +15,11 @@ from .serializers import (
     OrderSerializer, ProductSerializer, TruckSerializer, ShipmentSerializer, CategorySerializer
 )
 from .allocation import allocate_shipments
-from .permissions import IsAdminUser
 from django.db.models import F
-
 from django.shortcuts import redirect
-
-def redirect_view(request):
-    return redirect('/admin/')
+from django.contrib.auth.models import User
+from django.http import JsonResponse
+from .permissions import IsEmployeeUser
 
 # ✅ Custom Pagination Class
 class StandardPagination(PageNumberPagination):
@@ -42,6 +41,7 @@ class CustomAuthToken(TokenObtainPairView):
             },
             status=status.HTTP_200_OK,
         )
+
 
 # ✅ Logout View (Blacklist Refresh Token)
 @api_view(["POST"])
@@ -121,7 +121,7 @@ def get_trucks(request):
 @permission_classes([IsAuthenticated])
 def get_shipments(request):
     try:
-        shipments = Shipment.objects.all().order_by("-created_at")
+        shipments = Shipment.objects.all().order_by("-shipment_date")  # Fix applied here
         paginator = StandardPagination()
         paginated_shipments = paginator.paginate_queryset(shipments, request)
         serializer = ShipmentSerializer(paginated_shipments, many=True)
@@ -229,3 +229,138 @@ def store_qr_code(request):
 
     except Exception as e:
         return Response({"error": str(e)}, status=400)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdminUser])
+def get_counts(request):
+    try:
+        order_count = Order.objects.count()
+        pending_order_count = Order.objects.filter(status="pending").count()
+        employee_count = Employee.objects.count()
+        retailer_count = Retailer.objects.count()
+
+        return Response(
+            {
+                "orders_placed": order_count,
+                "pending_orders": pending_order_count,
+                "employees_available": employee_count,
+                "retailers_available": retailer_count,
+            },
+            status=status.HTTP_200_OK,
+        )
+    except Exception as e:
+        return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(["GET"])
+@permission_classes([IsAdminUser])
+def get_users(request):
+    """Fetch all users along with their assigned group(s) and return as JSON."""
+    users = User.objects.prefetch_related('groups').values('id', 'username', 'email', 'is_staff', 'groups__name')
+
+    # Organize users with their groups
+    user_dict = {}
+    for user in users:
+        user_id = user["id"]
+        if user_id not in user_dict:
+            user_dict[user_id] = {
+                "id": user["id"],
+                "username": user["username"],
+                "email": user["email"],
+                "is_staff": user["is_staff"],
+                "groups": []
+            }
+        if user["groups__name"]:
+            user_dict[user_id]["groups"].append(user["groups__name"])
+
+    return Response(list(user_dict.values()))
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])  # Ensure user is authenticated
+def get_logged_in_user(request):
+    """Fetch details of the currently authenticated user."""
+    user = request.user  # Get the logged-in user
+
+    # Get user details along with group(s)
+    user_data = {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "is_staff": user.is_staff,
+        "groups": list(user.groups.values_list("name", flat=True))
+    }
+    
+    return Response(user_data)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated,IsEmployeeUser])
+def get_employee_shipments(request):
+    """Fetch shipments assigned to the logged-in employee."""
+    
+    # Get the logged-in user's username
+    username = request.user.username  
+
+    # Fetch shipments where the employee's user has the same username
+    shipments = Shipment.objects.filter(employee__user__username=username)  
+
+    # Serialize the data
+    serializer = ShipmentSerializer(shipments, many=True)  
+
+    return Response(serializer.data)
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated,IsEmployeeUser])
+def update_shipment_status(request):
+    """Allow an employee to update the status of their assigned shipment."""
+
+    # Get the logged-in user's username
+    username = request.user.username  
+
+    # Extract data from the request
+    shipment_id = request.data.get('shipment_id')
+    new_status = request.data.get('status')
+
+    # Validate request data
+    if not shipment_id or not new_status:
+        return Response({"error": "shipment_id and status are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Validate status choices
+    valid_statuses = ['in_transit', 'delivered', 'failed']
+    if new_status not in valid_statuses:
+        return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Find the shipment assigned to this employee
+    try:
+        shipment = Shipment.objects.get(shipment_id=shipment_id, employee__user__username=username)
+    except Shipment.DoesNotExist:
+        return Response({"error": "Shipment not found or unauthorized"}, status=status.HTTP_404_NOT_FOUND)
+
+    # Update shipment status
+    shipment.status = new_status
+    shipment.save()
+
+    return Response({"message": "Shipment status updated successfully"}, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated,IsEmployeeUser])
+def get_employee_orders(request):
+    """
+    Fetch order details for shipments assigned to the logged-in employee.
+    """
+
+    # Get the logged-in user
+    user = request.user  
+
+    # Find shipments assigned to this employee
+    shipments = Shipment.objects.filter(employee__user=user)
+
+    # Extract order details for those shipments
+    orders = [shipment.order for shipment in shipments]  
+
+    # Serialize the data
+    serializer = OrderSerializer(orders, many=True)  
+
+    return Response(serializer.data)
+
+def redirect_view(request):
+    return redirect('/admin/')
