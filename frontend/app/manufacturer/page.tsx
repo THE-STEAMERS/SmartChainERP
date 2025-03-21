@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import mqtt from "mqtt";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -26,6 +27,7 @@ import {
 import {
   AlertCircle,
   BarChartIcon,
+  BellIcon,
   ClockIcon,
   DollarSignIcon,
   ShoppingBagIcon,
@@ -34,6 +36,8 @@ import {
   TrendingUpIcon,
   TruckIcon,
   UsersIcon,
+  WifiIcon,
+  XIcon,
 } from "lucide-react";
 
 // Interfaces
@@ -84,6 +88,14 @@ interface ShipmentResponse {
   next: string | null;
   previous: string | null;
   results: Shipment[];
+}
+
+// Interface for anomaly notifications
+interface AnomalyNotification {
+  id: string;
+  message: string;
+  timestamp: Date;
+  read: boolean;
 }
 
 // Hardcoded data for fallback
@@ -182,6 +194,9 @@ export const payments: Payment[] = [
 // API URL for fetching counts
 const API_URL = "http://127.0.0.1:8000/api";
 
+// MQTT Topics
+const ANOMALY_TOPIC = "manufacturing/anomalies";
+
 const Dashboard: React.FC = () => {
   const [overviewData, setOverviewData] = useState<OverviewCard>(testData);
   const [analytics] = useState<AnalyticsData>(analyticsData);
@@ -194,6 +209,13 @@ const Dashboard: React.FC = () => {
   const [shipmentsError, setShipmentsError] = useState<string | null>(null);
   const [allocateLoading, setAllocateLoading] = useState<boolean>(false);
   const [allocateError, setAllocateError] = useState<string | null>(null);
+  const [mqttConnected, setMqttConnected] = useState<boolean>(false);
+
+  // States for anomaly notifications
+  const [anomalyNotifications, setAnomalyNotifications] = useState<AnomalyNotification[]>([]);
+  const [showNotificationPanel, setShowNotificationPanel] = useState<boolean>(false);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+
   // Define columns for the shipment data table
   const shipmentColumns = [
     {
@@ -245,18 +267,58 @@ const Dashboard: React.FC = () => {
     },
   ];
 
+  // Function to add a new anomaly notification
+  const addAnomalyNotification = useCallback(() => {
+    const newNotification: AnomalyNotification = {
+      id: Date.now().toString(),
+      message: "Anomaly Detected", // Fixed message as per requirement
+      timestamp: new Date(),
+      read: false,
+    };
+
+    setAnomalyNotifications((prev) => [newNotification, ...prev]);
+    setUnreadCount((prev) => prev + 1);
+
+    // Auto-hide the toast notification after 5 seconds
+    setTimeout(() => {
+      setAnomalyNotifications((prev) =>
+        prev.filter((notification) => notification.id !== newNotification.id)
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    }, 5000);
+  }, []);
+
+  // Function to mark notifications as read
+  const markAllAsRead = useCallback(() => {
+    setAnomalyNotifications((prev) =>
+      prev.map((notification) => ({ ...notification, read: true }))
+    );
+    setUnreadCount(0);
+  }, []);
+
+  // Function to dismiss a specific notification
+  const dismissNotification = useCallback((id: string) => {
+    setAnomalyNotifications((prev) => {
+      const notification = prev.find((n) => n.id === id);
+      if (notification && !notification.read) {
+        setUnreadCount((count) => Math.max(0, count - 1));
+      }
+      return prev.filter((notification) => notification.id !== id);
+    });
+  }, []);
+
   // Get auth token with error handling
-  const getAuthToken = useCallback(() => {
-    const token = localStorage.getItem("access_token");
+  const getAuthToken = useCallback(async () => {
+    let token = localStorage.getItem("access_token");
     if (!token) {
-      refreshAccessToken();
+      token = await refreshAccessToken();
     }
     return token;
   }, []);
-  
+
   const getRefreshToken = () => localStorage.getItem("refresh_token");
-  
-  const refreshAccessToken = async (): Promise<string | null> => {
+
+  const refreshAccessToken = useCallback(async (): Promise<string | null> => {
     const refreshToken = getRefreshToken();
     if (!refreshToken) return null;
   
@@ -284,11 +346,12 @@ const Dashboard: React.FC = () => {
     }
   
     return null;
-  };
-  const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+  }, []);
+
+  const fetchWithAuth = useCallback(async (url: string, options: RequestInit = {}) => {
     let token = await getAuthToken();
     if (!token) throw new Error("Authentication token not found. Please log in again.");
-  
+
     const response = await fetch(url, {
       ...options,
       headers: {
@@ -297,11 +360,11 @@ const Dashboard: React.FC = () => {
         "Content-Type": "application/json",
       },
     });
-  
+
     if (response.status === 401) {
       token = await refreshAccessToken();
       if (!token) throw new Error("Authentication token not found. Please log in again.");
-  
+
       return fetch(url, {
         ...options,
         headers: {
@@ -311,10 +374,10 @@ const Dashboard: React.FC = () => {
         },
       });
     }
-  
+
     return response;
-  };
-  
+  }, [getAuthToken, refreshAccessToken]);
+
   // Fetch shipments data with improved error handling
   const fetchShipments = useCallback(async () => {
     try {
@@ -339,7 +402,7 @@ const Dashboard: React.FC = () => {
     } finally {
       setShipmentsLoading(false);
     }
-  }, [getAuthToken]);
+  }, [getAuthToken, fetchWithAuth]);
 
   // Handle allocate orders with improved error handling and loading state
   const handleAllocateOrders = async () => {
@@ -356,21 +419,19 @@ const Dashboard: React.FC = () => {
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         if (errorData.error) {
-          setAllocateError(errorData.error); // Set the specific error message
+          setAllocateError(errorData.error);
         } else {
           throw new Error(
             errorData.detail || `Server responded with status ${response.status}`
           );
         }
       } else {
-        // After successful allocation, refresh the data
         await Promise.all([fetchShipments(), fetchCounts()]);
-        alert("Orders allocated successfully!");
       }
     } catch (err) {
       console.error("Error allocating orders:", err);
       if (!allocateError) {
-        alert(`Failed to allocate orders: ${(err as Error).message}`);
+        setAllocateError(`Failed to allocate orders: ${(err as Error).message}`);
       }
     } finally {
       setAllocateLoading(false);
@@ -381,7 +442,7 @@ const Dashboard: React.FC = () => {
   const fetchCounts = useCallback(async () => {
     try {
       setLoading(true);
-      const token = getAuthToken();
+      const token = await getAuthToken();
 
       const response = await fetchWithAuth(`${API_URL}/count`);
 
@@ -394,7 +455,7 @@ const Dashboard: React.FC = () => {
 
       const countsData: CountsResponse = await response.json();
       setOverviewData((prevData) => ({
-        totalOrders: countsData.orders_placed, // Keep existing value since it's not in the API
+        totalOrders: countsData.orders_placed,
         numStores: countsData.retailers_available,
         deliveryAgents: countsData.employees_available,
         pendingOrders: countsData.pending_orders,
@@ -411,26 +472,231 @@ const Dashboard: React.FC = () => {
 
   // Set up polling with cleanup
   useEffect(() => {
-    // Initial fetch
     fetchCounts();
     fetchShipments();
 
-    // Set up polling
     const countsIntervalId = setInterval(fetchCounts, 5000);
     const shipmentsIntervalId = setInterval(fetchShipments, 30000);
 
-    // Clean up intervals on unmount
     return () => {
       clearInterval(countsIntervalId);
       clearInterval(shipmentsIntervalId);
     };
   }, [fetchCounts, fetchShipments]);
 
+  // MQTT connection setup with anomaly detection
+  // MQTT connection setup with anomaly detection and reconnection logic
+  useEffect(() => {
+    console.log("Attempting to connect to MQTT broker...");
+  
+    // Updated connection to use mqtt.eclipseprojects.io with WebSocket
+    const client = mqtt.connect("ws://mqtt.eclipseprojects.io:80/mqtt", {
+      keepalive: 60,
+      clientId: `mqttjs_${Math.random().toString(16).substr(2, 8)}`,
+      connectTimeout: 30000, // 30 seconds timeout
+      reconnectPeriod: 5000, // Reconnect every 5 seconds
+      clean: true,
+    });
+  
+    let reconnectTimer;
+  
+    client.on("connect", () => {
+      console.log("MQTT connected successfully");
+      setMqttConnected(true);
+      clearTimeout(reconnectTimer);
+  
+      console.log("Subscribing to topic:", ANOMALY_TOPIC);
+      client.subscribe(ANOMALY_TOPIC, { qos: 1 }, (err) => {
+        if (err) {
+          console.error("Failed to subscribe to anomaly topic:", err);
+        } else {
+          console.log("Successfully subscribed to anomaly topic:", ANOMALY_TOPIC);
+        }
+      });
+    });
+  
+    client.on("message", (topic, message) => {
+      if (topic === ANOMALY_TOPIC) {
+        const payload = message.toString().trim().toLowerCase();
+        console.log(`Received message on topic ${topic}: ${payload}`);
+        if (payload === "anomaly detected: no qr code detected for over 10 seconds!") {
+          console.log("Anomaly detected! Adding notification.");
+          addAnomalyNotification();
+        } else {
+          console.log("Message does not match 'anomaly detected: no qr code detected for over 10 seconds!'. Ignoring.");
+        }
+      }
+    });
+  
+    client.on("error", (err) => {
+      // Safely handle the error object
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("MQTT connection error:", errorMessage);
+      setMqttConnected(false);
+  
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        console.log("Attempting to reconnect to MQTT...");
+        client.reconnect();
+      }, 5000);
+    });
+  
+    client.on("close", () => {
+      console.log("MQTT connection closed");
+      setMqttConnected(false);
+  
+      clearTimeout(reconnectTimer);
+      reconnectTimer = setTimeout(() => {
+        console.log("Attempting to reconnect to MQTT after connection closed...");
+        client.reconnect();
+      }, 5000);
+    });
+  
+    client.on("offline", () => {
+      console.log("MQTT client is offline");
+      setMqttConnected(false);
+    });
+  
+    client.on("reconnect", () => {
+      console.log("Attempting to reconnect to MQTT broker...");
+    });
+  
+    return () => {
+      clearTimeout(reconnectTimer);
+      console.log("Cleaning up MQTT client");
+      client.end(true); // Force close the connection
+    };
+  }, [addAnomalyNotification]);
+
   return (
     <div className="flex flex-col min-h-screen bg-neutral-950 text-white p-6">
-      <h1 className="text-4xl font-bold text-white mb-4 px-3 py-2">
-        Dashboard
-      </h1>
+      <style jsx global>{`
+        @keyframes slideIn {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        .animate-slideIn {
+          animation: slideIn 0.3s ease-out forwards;
+        }
+      `}</style>
+
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-4xl font-bold text-white px-3 py-2">Dashboard</h1>
+        <div className="flex items-center gap-4">
+          {/* MQTT Connection Indicator */}
+          {mqttConnected ? (
+            <div className="text-green-500 bg-green-900/20 p-2 rounded-full" title="Device is connected">
+              <WifiIcon className="w-5 h-5" />
+            </div>
+          ) : (
+            <div className="text-red-500 bg-red-900/20 p-2 rounded-full" title="Device is disconnected">
+              <WifiIcon className="w-5 h-5" />
+            </div>
+          )}
+
+          {/* Notification Bell with Counter */}
+          <div className="relative">
+            <button
+              onClick={() => setShowNotificationPanel(!showNotificationPanel)}
+              className="text-white bg-gray-800 hover:bg-gray-700 p-2 rounded-full transition-all duration-300"
+              title="View notifications"
+            >
+              <BellIcon className="w-5 h-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Notification Panel */}
+      {showNotificationPanel && (
+        <div className="absolute top-20 right-6 w-80 bg-gray-900 border border-gray-700 rounded-lg shadow-lg z-50 overflow-hidden">
+          <div className="p-3 border-b border-gray-700 flex justify-between items-center">
+            <h3 className="text-lg font-semibold text-white">Anomaly Alerts</h3>
+            <div className="flex gap-2">
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllAsRead}
+                  className="text-xs text-blue-400 hover:text-blue-300"
+                >
+                  Mark all as read
+                </button>
+              )}
+              <button
+                onClick={() => setShowNotificationPanel(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                <XIcon className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+          <div className="max-h-96 overflow-y-auto">
+            {anomalyNotifications.length > 0 ? (
+              <div className="divide-y divide-gray-700">
+                {anomalyNotifications.map((notification) => (
+                  <div
+                    key={notification.id}
+                    className={`p-3 relative ${notification.read ? "bg-gray-900" : "bg-gray-800"}`}
+                  >
+                    <div className="flex justify-between">
+                      <p className="text-sm text-yellow-400">{notification.message}</p>
+                      <button
+                        onClick={() => dismissNotification(notification.id)}
+                        className="text-gray-500 hover:text-gray-300 ml-2"
+                      >
+                        <XIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {notification.timestamp.toLocaleTimeString()}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="p-4 text-center text-gray-500">
+                No anomalies detected
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notifications - Shows the latest anomaly notification */}
+      {anomalyNotifications.length > 0 && !showNotificationPanel && (
+        <div className="fixed top-6 right-6 z-50 max-w-md">
+          {anomalyNotifications.slice(0, 1).map((notification) => (
+            <div
+              key={notification.id}
+              className="mb-2 p-4 rounded-lg shadow-lg flex items-start gap-3 animate-slideIn transition-all duration-300 bg-yellow-900/90 border border-yellow-700"
+            >
+              <AlertCircle className="w-5 h-5 mt-0.5 text-yellow-400" />
+              <div className="flex-1">
+                <p className="text-white text-sm font-medium">{notification.message}</p>
+                <p className="text-xs text-gray-300 mt-1">
+                  {notification.timestamp.toLocaleTimeString()}
+                </p>
+              </div>
+              <button
+                onClick={() => dismissNotification(notification.id)}
+                className="text-gray-300 hover:text-white"
+              >
+                <XIcon className="w-4 h-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <Tabs defaultValue="Overview" className="w-full mb-6">
         <TabsList className="flex flex-wrap justify-center md:justify-evenly bg-gray-300 p-2 rounded-2xl shadow-lg w-full md:w-3/4 lg:w-1/2 mb-4 h-14 border border-gray-700">
@@ -448,7 +714,6 @@ const Dashboard: React.FC = () => {
         </TabsList>
 
         <TabsContent value="Overview">
-          {/* Authentication Error */}
           {error && error.includes("Authentication") && (
             <div className="bg-red-900/30 border border-red-600 p-4 rounded-lg mb-4 flex items-center gap-3">
               <AlertCircle className="w-5 h-5 text-red-500" />
@@ -456,9 +721,6 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
-          
-
-          {/* Other Errors */}
           {error && !error.includes("Authentication") && (
             <div className="bg-red-900/30 border border-red-600 p-4 rounded-lg mb-4 flex items-center gap-3">
               <AlertCircle className="w-5 h-5 text-red-500" />
@@ -466,14 +728,11 @@ const Dashboard: React.FC = () => {
             </div>
           )}
 
-          {/* Display Data */}
           <div className="h-screen flex flex-col gap-4 overflow-hidden p-6">
-            {/* Top Section - Four Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6 items-start">
               <Card className="shadow-lg rounded-xl px-4 pt-4 transition-all duration-300 hover:shadow-xl h-auto py-6 border border-gray-600">
                 <h2 className="text-lg font-medium text-white mb-1 flex items-center gap-2">
-                  <TrendingUpIcon className="w-5 h-5 text-green-400" /> Total
-                  Orders
+                  <TrendingUpIcon className="w-5 h-5 text-green-400" /> Total Orders
                 </h2>
                 <p className="text-2xl font-bold text-white tracking-tight">
                   {overviewData.totalOrders}
@@ -520,19 +779,13 @@ const Dashboard: React.FC = () => {
               </Card>
             </div>
 
-            {/* Bottom Section - Chart and Data Table*/}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8 flex-grow overflow-hidden mt-6">
-              {/* Chart Section */}
               <Card className="shadow-lg rounded-xl px-4 pt-4 transition-all duration-300 hover:shadow-xl h-full min-h-[500px] py-6 flex flex-col border border-gray-600">
                 <h2 className="text-lg font-medium text-white mb-1 flex items-center gap-2">
-                  <BarChartIcon className="w-5 h-5 text-green-400" /> Monthly
-                  Sales
+                  <BarChartIcon className="w-5 h-5 text-green-400" /> Monthly Sales
                 </h2>
                 <div className="flex-grow w-full overflow-hidden">
-                  <ChartContainer
-                    config={chartConfig}
-                    className="w-full h-full"
-                  >
+                  <ChartContainer config={chartConfig} className="w-full h-full">
                     <BarChart data={chartData}>
                       <CartesianGrid vertical={false} />
                       <XAxis
@@ -552,17 +805,13 @@ const Dashboard: React.FC = () => {
                 </div>
               </Card>
 
-              {/* Data Table Section - Updated for Shipment Data */}
               <Card className="shadow-lg rounded-xl px-4 pt-4 transition-all duration-300 hover:shadow-xl h-auto py-6 border border-gray-600">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-medium text-white flex items-center gap-2">
                     <TableIcon className="w-5 h-5 text-blue-400" /> Order Details
-                    
                   </h2>
                   <Button
                     onClick={handleAllocateOrders}
-                    
-                    
                     className="bg-blue-600 hover:bg-blue-700 text-white disabled:bg-blue-800 disabled:text-gray-300"
                   >
                     {allocateLoading ? "Allocating..." : "Allocate Orders"}
@@ -594,9 +843,7 @@ const Dashboard: React.FC = () => {
                     </div>
                   ) : (
                     <div className="text-center py-8">
-                      <p className="text-gray-400">
-                        No shipment data available.
-                      </p>
+                      <p className="text-gray-400">No shipment data available.</p>
                       <Button
                         onClick={fetchShipments}
                         className="mt-4 bg-gray-700 hover:bg-gray-600 text-white"
@@ -610,88 +857,51 @@ const Dashboard: React.FC = () => {
           </div>
         </TabsContent>
 
-        {/* Analytics Tab */}
         <TabsContent value="Analytics">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-6">
             <Card className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
-              <h2 className="text-xl font-semibold mb-2 text-blue-400">
-                Daily Orders
-              </h2>
-              <p className="text-3xl font-bold text-gray-200">
-                {analytics.dailyOrders}
-              </p>
+              <h2 className="text-xl font-semibold mb-2 text-blue-400">Daily Orders</h2>
+              <p className="text-3xl font-bold text-gray-200">{analytics.dailyOrders}</p>
             </Card>
             <Card className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
-              <h2 className="text-xl font-semibold mb-2 text-blue-400">
-                Avg. Order Value
-              </h2>
-              <p className="text-3xl font-bold text-gray-200">
-                ${analytics.avgOrderValue.toFixed(2)}
-              </p>
+              <h2 className="text-xl font-semibold mb-2 text-blue-400">Avg. Order Value</h2>
+              <p className="text-3xl font-bold text-gray-200">${analytics.avgOrderValue.toFixed(2)}</p>
             </Card>
             <Card className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
-              <h2 className="text-xl font-semibold mb-2 text-blue-400">
-                Returning Customers
-              </h2>
-              <p className="text-3xl font-bold text-gray-200">
-                {analytics.returningCustomers}
-              </p>
+              <h2 className="text-xl font-semibold mb-2 text-blue-400">Returning Customers</h2>
+              <p className="text-3xl font-bold text-gray-200">{analytics.returningCustomers}</p>
             </Card>
             <Card className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
-              <h2 className="text-xl font-semibold mb-2 text-blue-400">
-                Conversion Rate
-              </h2>
-              <p className="text-3xl font-bold text-gray-200">
-                {analytics.conversionRate}%
-              </p>
+              <h2 className="text-xl font-semibold mb-2 text-blue-400">Conversion Rate</h2>
+              <p className="text-3xl font-bold text-gray-200">{analytics.conversionRate}%</p>
             </Card>
           </div>
         </TabsContent>
 
-        {/* Reports Tab */}
         <TabsContent value="Reports">
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 gap-6">
             <Card className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
-              <h2 className="text-xl font-semibold mb-2 text-blue-400">
-                Monthly Revenue
-              </h2>
-              <p className="text-3xl font-bold text-gray-200">
-                ${reports.monthlyRevenue.toLocaleString()}
-              </p>
+              <h2 className="text-xl font-semibold mb-2 text-blue-400">Monthly Revenue</h2>
+              <p className="text-3xl font-bold text-gray-200">${reports.monthlyRevenue.toLocaleString()}</p>
             </Card>
             <Card className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
-              <h2 className="text-xl font-semibold mb-2 text-blue-400">
-                Monthly Expenses
-              </h2>
-              <p className="text-3xl font-bold text-gray-200">
-                ${reports.monthlyExpenses.toLocaleString()}
-              </p>
+              <h2 className="text-xl font-semibold mb-2 text-blue-400">Monthly Expenses</h2>
+              <p className="text-3xl font-bold text-gray-200">${reports.monthlyExpenses.toLocaleString()}</p>
             </Card>
             <Card className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
-              <h2 className="text-xl font-semibold mb-2 text-blue-400">
-                Profit
-              </h2>
-              <p className="text-3xl font-bold text-gray-200">
-                ${reports.profit.toLocaleString()}
-              </p>
+              <h2 className="text-xl font-semibold mb-2 text-blue-400">Profit</h2>
+              <p className="text-3xl font-bold text-gray-200">${reports.profit.toLocaleString()}</p>
             </Card>
             <Card className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
-              <h2 className="text-xl font-semibold mb-2 text-blue-400">
-                Customer Satisfaction
-              </h2>
-              <p className="text-3xl font-bold text-gray-200">
-                {reports.customerSatisfaction}%
-              </p>
+              <h2 className="text-xl font-semibold mb-2 text-blue-400">Customer Satisfaction</h2>
+              <p className="text-3xl font-bold text-gray-200">{reports.customerSatisfaction}%</p>
             </Card>
           </div>
         </TabsContent>
 
-        {/* Notifications Tab */}
         <TabsContent value="Notifications">
           <div className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
-            <h2 className="text-2xl font-semibold mb-4 text-blue-400">
-              Recent Notifications
-            </h2>
+            <h2 className="text-2xl font-semibold mb-4 text-blue-400">Recent Notifications</h2>
             {notif.length > 0 ? (
               <ul className="space-y-3">
                 {notif.map((note) => (
@@ -702,9 +912,7 @@ const Dashboard: React.FC = () => {
                 ))}
               </ul>
             ) : (
-              <p className="text-gray-400 text-center py-4">
-                No notifications available.
-              </p>
+              <p className="text-gray-400 text-center py-4">No notifications available.</p>
             )}
           </div>
         </TabsContent>

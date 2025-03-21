@@ -42,7 +42,7 @@ export function Navbar() {
 
 export function Logo() {
   return (
-    <Link href="/customerpage/dashboard" className="flex items-center gap-2.5">
+    <Link href="/manufacturer" className="flex items-center gap-2.5">
       <h2 className="text-md font-bold font-code">Manufacturer</h2>
     </Link>
   );
