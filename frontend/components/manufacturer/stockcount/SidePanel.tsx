@@ -11,7 +11,7 @@ const SidePanel: React.FC<SidePanelProps> = ({ stockData = [] }) => { // Provide
   const [showAllDemand, setShowAllDemand] = useState(false);
 
 
-  const highDemandItems = stockData.filter(item => item.demanded > item.available);
+  const highDemandItems = stockData.filter(item => item.demanded >= item.available);
   const displayedDemandItems = showAllDemand ? highDemandItems : highDemandItems.slice(0, 4);
   const hasMoreItems = highDemandItems.length > 4;
 

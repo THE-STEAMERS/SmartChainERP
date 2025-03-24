@@ -36,6 +36,9 @@ import {
   UsersIcon,
 } from "lucide-react";
 
+// API URL for fetching counts
+const API_URL = "http://127.0.0.1:8000/api";
+
 // Interfaces
 interface OverviewCard {
   totalOrders: number;
@@ -86,6 +89,13 @@ interface ShipmentResponse {
   results: Shipment[];
 }
 
+type Payment = {
+  id: string;
+  amount: number;
+  status: "pending" | "processing" | "success" | "failed";
+  email: string;
+};
+
 // Hardcoded data for fallback
 const testData: OverviewCard = {
   totalOrders: 0,
@@ -128,24 +138,6 @@ const chartConfig = {
   },
 } satisfies ChartConfig;
 
-const notifications: Notification[] = [
-  { id: 1, message: "New order placed: #12345", date: "2025-02-15" },
-  { id: 2, message: "Low stock alert for Store #24", date: "2025-02-14" },
-  {
-    id: 3,
-    message: "Delivery agent #12 completed order #67890",
-    date: "2025-02-14",
-  },
-  { id: 4, message: "New customer feedback received", date: "2025-02-13" },
-];
-
-type Payment = {
-  id: string;
-  amount: number;
-  status: "pending" | "processing" | "success" | "failed";
-  email: string;
-};
-
 export const payments: Payment[] = [
   {
     id: "728ed52f",
@@ -179,21 +171,110 @@ export const payments: Payment[] = [
   },
 ];
 
-// API URL for fetching counts
-const API_URL = "http://127.0.0.1:8000/api";
-
 const Dashboard: React.FC = () => {
+  // State for overview data
   const [overviewData, setOverviewData] = useState<OverviewCard>(testData);
-  const [analytics] = useState<AnalyticsData>(analyticsData);
-  const [reports] = useState<ReportData>(reportData);
-  const [notif] = useState<Notification[]>(notifications);
+  const [analytics, setAnalytics] = useState<AnalyticsData>(analyticsData);
+  const [reports, setReports] = useState<ReportData>(reportData);
+
+  // Loading and error states
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Shipment states
   const [shipments, setShipments] = useState<Shipment[]>([]);
   const [shipmentsLoading, setShipmentsLoading] = useState<boolean>(true);
   const [shipmentsError, setShipmentsError] = useState<string | null>(null);
+
+  // Allocate order states
   const [allocateLoading, setAllocateLoading] = useState<boolean>(false);
   const [allocateError, setAllocateError] = useState<string | null>(null);
+
+  // Notification states
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notificationsLoading, setNotificationsLoading] =
+    useState<boolean>(true);
+
+  // Authentication utilities
+  const getRefreshToken = useCallback(() => {
+    return localStorage.getItem("refresh_token");
+  }, []);
+
+  const refreshAccessToken = useCallback(async (): Promise<string | null> => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return null;
+
+    try {
+      const response = await fetch(`${API_URL}/token/refresh/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refresh: refreshToken }),
+      });
+
+      if (!response.ok) {
+        console.error("Failed to refresh token");
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        return null;
+      }
+
+      const data = await response.json();
+      if (data.access) {
+        localStorage.setItem("access_token", data.access);
+        return data.access;
+      }
+    } catch (error) {
+      console.error("Error refreshing token:", error);
+    }
+
+    return null;
+  }, [getRefreshToken]);
+
+  const getAuthToken = useCallback(async (): Promise<string | null> => {
+    const token = localStorage.getItem("access_token");
+    if (!token) {
+      return await refreshAccessToken();
+    }
+    return token;
+  }, [refreshAccessToken]);
+
+  const fetchWithAuth = useCallback(
+    async (url: string, options: RequestInit = {}) => {
+      let token = await getAuthToken();
+      if (!token)
+        throw new Error("Authentication token not found. Please log in again.");
+
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          ...options.headers,
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.status === 401) {
+        token = await refreshAccessToken();
+        if (!token)
+          throw new Error(
+            "Authentication token not found. Please log in again."
+          );
+
+        return fetch(url, {
+          ...options,
+          headers: {
+            ...options.headers,
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        });
+      }
+
+      return response;
+    },
+    [getAuthToken, refreshAccessToken]
+  );
+
   // Define columns for the shipment data table
   const shipmentColumns = [
     {
@@ -245,83 +326,11 @@ const Dashboard: React.FC = () => {
     },
   ];
 
-  // Get auth token with error handling
-  const getAuthToken = useCallback(() => {
-    const token = localStorage.getItem("access_token");
-    if (!token) {
-      refreshAccessToken();
-    }
-    return token;
-  }, []);
-  
-  const getRefreshToken = () => localStorage.getItem("refresh_token");
-  
-  const refreshAccessToken = async (): Promise<string | null> => {
-    const refreshToken = getRefreshToken();
-    if (!refreshToken) return null;
-  
-    try {
-      const response = await fetch(`${API_URL}/token/refresh/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh: refreshToken }),
-      });
-  
-      if (!response.ok) {
-        console.error("Failed to refresh token");
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
-        return null;
-      }
-  
-      const data = await response.json();
-      if (data.access) {
-        localStorage.setItem("access_token", data.access);
-        return data.access;
-      }
-    } catch (error) {
-      console.error("Error refreshing token:", error);
-    }
-  
-    return null;
-  };
-  const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
-    let token = await getAuthToken();
-    if (!token) throw new Error("Authentication token not found. Please log in again.");
-  
-    const response = await fetch(url, {
-      ...options,
-      headers: {
-        ...options.headers,
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-    });
-  
-    if (response.status === 401) {
-      token = await refreshAccessToken();
-      if (!token) throw new Error("Authentication token not found. Please log in again.");
-  
-      return fetch(url, {
-        ...options,
-        headers: {
-          ...options.headers,
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      });
-    }
-  
-    return response;
-  };
-  
   // Fetch shipments data with improved error handling
   const fetchShipments = useCallback(async () => {
     try {
       setShipmentsLoading(true);
-      const token = getAuthToken();
-
-      const response = await fetchWithAuth("http://127.0.0.1:8000/api/shipments/");
+      const response = await fetchWithAuth(`${API_URL}/shipments/`);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -339,16 +348,54 @@ const Dashboard: React.FC = () => {
     } finally {
       setShipmentsLoading(false);
     }
-  }, [getAuthToken]);
+  }, [fetchWithAuth]);
+
+  // Fetch notifications
+  // Update the fetchNotifications function to use fetchWithAuth
+  const fetchNotifications = useCallback(async () => {
+    try {
+      setNotificationsLoading(true);
+      const response = await fetchWithAuth(`${API_URL}/recent_actions/`);
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(
+          errorData.detail || `Server responded with status ${response.status}`
+        );
+      }
+
+      const data = await response.json();
+      const formattedData = data.recent_actions.map(
+        (
+          action: {
+            action_flag: any;
+            content_type: any;
+            object_repr: any;
+            time: string;
+          },
+          index: number
+        ) => ({
+          id: index + 1,
+          message: `${action.action_flag} on ${action.content_type}: ${action.object_repr}`,
+          date: action.time.split("T")[0], // Extract only the date
+        })
+      );
+
+      setNotifications(formattedData);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, [fetchWithAuth]);
 
   // Handle allocate orders with improved error handling and loading state
   const handleAllocateOrders = async () => {
     try {
       setAllocateLoading(true);
       setAllocateError(null);
-      const token = getAuthToken();
-      console.log(token);
-      const response = await fetchWithAuth("http://127.0.0.1:8000/api/allocate-orders/", {
+
+      const response = await fetchWithAuth(`${API_URL}/allocate-orders/`, {
         method: "POST",
         body: JSON.stringify({}),
       });
@@ -359,7 +406,8 @@ const Dashboard: React.FC = () => {
           setAllocateError(errorData.error); // Set the specific error message
         } else {
           throw new Error(
-            errorData.detail || `Server responded with status ${response.status}`
+            errorData.detail ||
+              `Server responded with status ${response.status}`
           );
         }
       } else {
@@ -370,7 +418,7 @@ const Dashboard: React.FC = () => {
     } catch (err) {
       console.error("Error allocating orders:", err);
       if (!allocateError) {
-        alert(`Failed to allocate orders: ${(err as Error).message}`);
+        setAllocateError((err as Error).message);
       }
     } finally {
       setAllocateLoading(false);
@@ -381,8 +429,6 @@ const Dashboard: React.FC = () => {
   const fetchCounts = useCallback(async () => {
     try {
       setLoading(true);
-      const token = getAuthToken();
-
       const response = await fetchWithAuth(`${API_URL}/count`);
 
       if (!response.ok) {
@@ -393,12 +439,12 @@ const Dashboard: React.FC = () => {
       }
 
       const countsData: CountsResponse = await response.json();
-      setOverviewData((prevData) => ({
-        totalOrders: countsData.orders_placed, // Keep existing value since it's not in the API
+      setOverviewData({
+        totalOrders: countsData.orders_placed,
         numStores: countsData.retailers_available,
         deliveryAgents: countsData.employees_available,
         pendingOrders: countsData.pending_orders,
-      }));
+      });
 
       setError(null);
     } catch (err) {
@@ -407,24 +453,27 @@ const Dashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [getAuthToken]);
+  }, [fetchWithAuth]);
 
-  // Set up polling with cleanup
+  // Set up data fetching and polling
   useEffect(() => {
     // Initial fetch
     fetchCounts();
     fetchShipments();
+    fetchNotifications();
 
     // Set up polling
     const countsIntervalId = setInterval(fetchCounts, 5000);
     const shipmentsIntervalId = setInterval(fetchShipments, 30000);
+    const notificationsIntervalId = setInterval(fetchNotifications, 10000);
 
     // Clean up intervals on unmount
     return () => {
       clearInterval(countsIntervalId);
       clearInterval(shipmentsIntervalId);
+      clearInterval(notificationsIntervalId);
     };
-  }, [fetchCounts, fetchShipments]);
+  }, [fetchCounts, fetchShipments, fetchNotifications]);
 
   return (
     <div className="flex flex-col min-h-screen bg-neutral-950 text-white p-6">
@@ -455,8 +504,6 @@ const Dashboard: React.FC = () => {
               <p className="text-red-500 text-lg">{error}</p>
             </div>
           )}
-
-          
 
           {/* Other Errors */}
           {error && !error.includes("Authentication") && (
@@ -556,13 +603,12 @@ const Dashboard: React.FC = () => {
               <Card className="shadow-lg rounded-xl px-4 pt-4 transition-all duration-300 hover:shadow-xl h-auto py-6 border border-gray-600">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-medium text-white flex items-center gap-2">
-                    <TableIcon className="w-5 h-5 text-blue-400" /> Order Details
-                    
+                    <TableIcon className="w-5 h-5 text-blue-400" /> Order
+                    Details
                   </h2>
                   <Button
                     onClick={handleAllocateOrders}
-                    
-                    
+                    disabled={allocateLoading}
                     className="bg-blue-600 hover:bg-blue-700 text-white disabled:bg-blue-800 disabled:text-gray-300"
                   >
                     {allocateLoading ? "Allocating..." : "Allocate Orders"}
@@ -575,9 +621,8 @@ const Dashboard: React.FC = () => {
                   </div>
                 )}
 
-                {shipmentsLoading && (
-                  <p className="text-blue-500">Loading transaction data...</p>
-                )}
+                
+                
 
                 {shipmentsError && (
                   <div className="bg-red-900/30 border border-red-600 p-3 rounded-lg mb-4 flex items-center gap-2">
@@ -686,15 +731,16 @@ const Dashboard: React.FC = () => {
           </div>
         </TabsContent>
 
-        {/* Notifications Tab */}
         <TabsContent value="Notifications">
           <div className="bg-transparent p-6 rounded-lg shadow-md border border-gray-600">
             <h2 className="text-2xl font-semibold mb-4 text-blue-400">
               Recent Notifications
             </h2>
-            {notif.length > 0 ? (
+            {notificationsLoading ? (
+              <p className="text-blue-500"></p>
+            ) : notifications.length > 0 ? (
               <ul className="space-y-3">
-                {notif.map((note) => (
+                {notifications.map((note) => (
                   <li key={note.id} className="border-b border-gray-600 pb-2">
                     <p className="text-gray-200">{note.message}</p>
                     <p className="text-gray-400 text-sm">{note.date}</p>

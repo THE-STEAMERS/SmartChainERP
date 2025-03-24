@@ -20,6 +20,7 @@ from django.shortcuts import redirect
 from django.contrib.auth.models import User
 from django.http import JsonResponse
 from .permissions import IsEmployeeUser
+from django.contrib.admin.models import LogEntry;
 
 # ✅ Custom Pagination Class
 class StandardPagination(PageNumberPagination):
@@ -376,3 +377,25 @@ def get_employee_id(request):
         return Response({"employee_id": employee.employee_id})  # ✅ Use employee_id instead of id
     except Employee.DoesNotExist:
         return Response({"error": "Employee not found"}, status=404)
+
+    
+@api_view(['GET'])
+@permission_classes([IsAuthenticated, IsAdminUser])
+def recent_actions(request):
+    # Fetch the last 10 actions performed in the admin panel
+    actions = LogEntry.objects.select_related('content_type', 'user').order_by('-action_time')[:10]
+
+    # Prepare JSON response
+    recent_actions_list = [
+        {
+            'time': action.action_time,
+            'user': action.user.username,
+            'content_type': action.content_type.model,
+            'object_id': action.object_id,
+            'object_repr': action.object_repr,
+            'action_flag': action.get_action_flag_display(),
+        }
+        for action in actions
+    ]
+
+    return Response({'recent_actions': recent_actions_list})
