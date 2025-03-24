@@ -62,14 +62,14 @@ export const OrdersTable = ({ orders, onCancelClick, onUpdateStatus }: OrdersTab
                   <td className="p-4">
                     {!order.isCancelled && !order.isDelivered && (
                       <>
-                        <Button 
+                        {/*<Button 
                           variant="destructive" 
                           size="sm"
                           className="bg-red-500 hover:bg-red-600 text-white mr-2"
                           onClick={() => onCancelClick(order.orderId)}
                         >
                           Cancel Order
-                        </Button>
+                        </Button>*/}
                         <Button 
                           variant="destructive" 
                           size="sm"
